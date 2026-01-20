@@ -19,10 +19,13 @@ A minimal RAG (Retrieval-Augmented Generation) chatbot using LangChain, Ollama, 
    ollama pull llama3
    ```
 
-### Installation
+### Local Installation
 ```bash
 # Install dependencies
 pip install -r requirements.txt
+
+# Verify setup
+python3 verify_setup.py
 
 # Add your PDF books to the books/ directory
 cp your_book.pdf books/
@@ -35,6 +38,17 @@ streamlit run app.py
 ```
 
 The app will open in your browser at `http://localhost:8501`
+
+### Codespaces Deployment
+
+This project is configured for GitHub Codespaces:
+
+1. **Open in Codespaces**: Click "Code" → "Codespaces" → "Create codespace"
+2. **Install Ollama**: Follow instructions in `.devcontainer/OLLAMA_SETUP.md`
+3. **Add PDFs**: Upload your PDF books to the `books/` directory
+4. **Run**: `streamlit run app.py`
+
+The Streamlit port (8501) will be automatically forwarded.
 
 ## How It Works
 
