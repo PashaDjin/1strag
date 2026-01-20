@@ -1,0 +1,8 @@
+rag_index/
+chunks.jsonl
+*.pyc
+__pycache__/
+.env
+.venv/
+.streamlit/
+.DS_Store
