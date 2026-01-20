@@ -2,6 +2,8 @@
 
 A minimal RAG (Retrieval-Augmented Generation) chatbot using LangChain, Ollama, Streamlit, and FAISS.
 
+> **Security Update**: All dependencies updated to patched versions (Jan 2026). See [SECURITY_UPDATE.md](SECURITY_UPDATE.md) for details.
+
 ## Features
 - 📚 Answer questions from PDF books with sources
 - 🔍 RecursiveCharacterTextSplitter with 1000/200 chunking
