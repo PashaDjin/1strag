@@ -42,9 +42,17 @@ def create_vector_store(documents):
     return vectorstore
 
 def load_vector_store():
-    """Load existing FAISS vector store."""
+    """Load existing FAISS vector store.
+    
+    Note: allow_dangerous_deserialization=True is required for FAISS loading.
+    This is safe for locally generated indices. Do not load FAISS indices from untrusted sources.
+    """
     embeddings = OllamaEmbeddings(model="llama3")
-    vectorstore = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
+    vectorstore = FAISS.load_local(
+        "faiss_index", 
+        embeddings, 
+        allow_dangerous_deserialization=True  # Safe for self-generated local indices
+    )
     return vectorstore
 
 def create_qa_chain(vectorstore):

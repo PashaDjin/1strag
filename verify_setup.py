@@ -65,16 +65,23 @@ def check_pdfs():
 
 def check_dependencies():
     """Check if required Python packages are installed."""
-    required = ['streamlit', 'langchain', 'langchain_community', 'faiss', 'pypdf', 'ollama']
+    required = {
+        'streamlit': 'streamlit',
+        'langchain': 'langchain',
+        'langchain_community': 'langchain_community',
+        'faiss': 'faiss-cpu',
+        'pypdf': 'pypdf',
+        'ollama': 'ollama'
+    }
     missing = []
     
-    for package in required:
+    for import_name, display_name in required.items():
         try:
-            __import__(package)
-            print(f"✓ {package} is installed")
+            __import__(import_name)
+            print(f"✓ {display_name} is installed")
         except ImportError:
-            print(f"✗ {package} is not installed")
-            missing.append(package)
+            print(f"✗ {display_name} is not installed")
+            missing.append(display_name)
     
     if missing:
         print(f"\n  Run: pip install -r requirements.txt")
