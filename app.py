@@ -21,6 +21,7 @@ DEFAULT_RERANK_TOP_K = 4  # После reranking оставляем лучшие
 DEFAULT_OLLAMA_MODEL = "qwen2.5:14b"  # Лучший для русского. Альтернатива: qwen2.5:7b
 DEFAULT_EMBED_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 ENABLE_RERANKING = True  # LLM фильтрует чанки по релевантности
+ENABLE_EXTRACT_THEN_SYNTHESIZE = True  # Сначала извлечь факты, потом синтезировать
 
 # Системный промпт с Chain-of-Thought
 SYSTEM_PROMPT = """Ты — эксперт-аналитик, отвечающий на вопросы на основе книг.
@@ -50,6 +51,22 @@ SYSTEM_PROMPT = """Ты — эксперт-аналитик, отвечающи�
 {context}
 
 Вопрос: {question}
+
+Ответ:"""
+
+# Промпт для синтеза из извлечённых фактов (Extract-then-Synthesize)
+SYNTHESIZE_PROMPT = """На основе извлечённых фактов дай полный структурированный ответ.
+
+Вопрос: {question}
+
+Извлечённые факты из книг:
+{facts}
+
+ПРАВИЛА:
+- Используй ВСЕ факты для ответа
+- Отвечай на РУССКОМ языке
+- Структурируй ответ: списки, определения
+- НЕ придумывай того, чего нет в фактах
 
 Ответ:"""
 
@@ -293,6 +310,46 @@ RERANK_PROMPT = """Оцени релевантность текста к воп�
 Оценка (0-10):"""
 
 
+# --- Extract-then-Synthesize ---
+
+EXTRACT_PROMPT = """Извлеки из текста ВСЕ факты, связанные с вопросом.
+
+Вопрос: {question}
+
+Текст:
+{chunk}
+
+Перечисли ТОЛЬКО факты (термины, определения, формулы, числа) — кратко, по пунктам.
+Если фактов нет — напиши "Нет релевантных фактов".
+
+Факты:"""
+
+
+def extract_facts_from_docs(docs: list, question: str, llm) -> str:
+    """
+    Извлекает факты из каждого чанка отдельно.
+    Возвращает объединённый список фактов.
+    
+    Это первый шаг Extract-then-Synthesize:
+    - Сначала LLM извлекает факты из каждого чанка
+    - Потом другой вызов синтезирует ответ из фактов
+    """
+    all_facts = []
+    
+    for i, doc in enumerate(docs, 1):
+        page_label = doc.metadata.get("page_label") or str(doc.metadata.get("page", 0) + 1)
+        prompt = EXTRACT_PROMPT.format(question=question, chunk=doc.page_content)
+        
+        try:
+            facts = llm.invoke(prompt)
+            if facts and "нет релевантных" not in facts.lower():
+                all_facts.append(f"[Стр. {page_label}]\n{facts.strip()}")
+        except Exception:
+            pass
+    
+    return "\n\n".join(all_facts) if all_facts else ""
+
+
 def rerank_docs(docs: list, question: str, llm, top_k: int = 4) -> list:
     """
     LLM-based reranking: оценивает релевантность каждого чанка.
@@ -415,16 +472,24 @@ def ask_question(
             top_k=DEFAULT_RERANK_TOP_K
         )
     
-    # 4. Собираем контекст
-    context = format_context(docs)
+    # 4. Extract-then-Synthesize ИЛИ обычный режим
+    if ENABLE_EXTRACT_THEN_SYNTHESIZE:
+        # Шаг 1: Извлекаем факты из каждого чанка
+        facts = extract_facts_from_docs(docs, full_question, llm)
+        
+        if not facts:
+            return "В книгах нет информации по этому вопросу.", docs
+        
+        # Шаг 2: Синтезируем ответ из фактов
+        prompt = SYNTHESIZE_PROMPT.format(question=full_question, facts=facts)
+        answer = llm.invoke(prompt)
+    else:
+        # Обычный режим: контекст → ответ
+        context = format_context(docs)
+        prompt = build_prompt(context, full_question)
+        answer = llm.invoke(prompt)
     
-    # 5. Собираем промпт
-    prompt = build_prompt(context, full_question)
-    
-    # 6. Вызываем LLM
-    answer = llm.invoke(prompt)
-    
-    # 7. Возвращаем ответ и документы
+    # 5. Возвращаем ответ и документы
     return answer, docs
 
 
