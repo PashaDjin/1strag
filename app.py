@@ -227,8 +227,31 @@ def build_full_question(user_question: str, messages: list[dict], max_pairs: int
 
 
 def format_context(docs: list) -> str:
-    """Собирает контекст из документов."""
-    return "\n\n---\n\n".join(doc.page_content for doc in docs)
+    """
+    Собирает контекст из документов с нумерацией "X из Y".
+    Порядок: менее релевантные сначала, самый релевантный — в конце.
+    (LLM лучше запоминают конец контекста — "recency bias")
+    """
+    if not docs:
+        return ""
+    
+    total = len(docs)
+    # Переворачиваем: самый релевантный будет последним
+    reversed_docs = list(reversed(docs))
+    
+    fragments = []
+    for i, doc in enumerate(reversed_docs, 1):
+        # Получаем номер страницы
+        page_label = doc.metadata.get("page_label")
+        if not page_label:
+            page_num = doc.metadata.get("page")
+            page_label = str(page_num + 1) if page_num is not None else "?"
+        
+        # "X из Y" создаёт ощущение чек-листа для LLM
+        header = f"[Фрагмент {i} из {total}, стр. {page_label}]"
+        fragments.append(f"{header}\n{doc.page_content}")
+    
+    return "\n\n---\n\n".join(fragments)
 
 
 def build_prompt(context: str, question: str) -> str:
