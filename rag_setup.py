@@ -25,6 +25,25 @@ DEFAULT_INDEX_DIR = "rag_index/"
 USE_SEMANTIC_CHUNKER = True  # Новый умный чанкинг
 
 
+def is_e5_model(model_name: str) -> bool:
+    """Проверяет, является ли модель E5 (требует префиксы query:/passage:)."""
+    return "e5" in model_name.lower()
+
+
+def add_passage_prefix(chunks: list, embed_model: str) -> list:
+    """
+    Добавляет 'passage: ' префикс к тексту чанков для E5 моделей.
+    E5 обучался с этими префиксами — без них качество падает на 10-20%.
+    """
+    if not is_e5_model(embed_model):
+        return chunks
+    
+    print(f"  📝 Добавляем 'passage:' префикс для E5 модели")
+    for chunk in chunks:
+        chunk.page_content = f"passage: {chunk.page_content}"
+    return chunks
+
+
 def get_env_int(name: str, default: int) -> int:
     """Безопасно читает int из env."""
     value = os.getenv(name)
@@ -141,6 +160,9 @@ def save_index_config(
 
 def build_index(chunks: list, index_dir: str, embed_model: str) -> None:
     """Создаёт embeddings и сохраняет FAISS индекс."""
+    # Добавляем passage: префикс для E5 моделей
+    chunks = add_passage_prefix(chunks, embed_model)
+    
     print(f"  🔢 Создание embeddings ({embed_model})...")
     embeddings = HuggingFaceEmbeddings(model_name=embed_model)
     

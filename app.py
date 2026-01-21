@@ -97,12 +97,29 @@ def load_index_config(index_dir: str) -> dict | None:
     return config
 
 
+def is_e5_model(model_name: str) -> bool:
+    """Проверяет, является ли модель E5 (требует префиксы query:/passage:)."""
+    return "e5" in model_name.lower()
+
+
+class E5QueryEmbeddings(HuggingFaceEmbeddings):
+    """
+    Обёртка над HuggingFaceEmbeddings, добавляющая 'query: ' префикс.
+    E5 модели обучались с префиксами — это критично для качества!
+    """
+    def embed_query(self, text: str) -> list[float]:
+        """Добавляет query: префикс перед получением эмбеддинга запроса."""
+        return super().embed_query(f"query: {text}")
+
+
 def get_embeddings(config: dict) -> HuggingFaceEmbeddings:
     """
     Создаёт embeddings используя embed_model ИЗ CONFIG (не из env!).
-    Это гарантирует совпадение модели при сборке и при query.
+    Для E5 моделей использует E5QueryEmbeddings с query: префиксом.
     """
     model_name = config["embed_model"]
+    if is_e5_model(model_name):
+        return E5QueryEmbeddings(model_name=model_name)
     return HuggingFaceEmbeddings(model_name=model_name)
 
 
@@ -131,7 +148,12 @@ def load_index(index_dir: str, embed_model: str):
     if not os.path.exists(index_path):
         return None
     
-    embeddings = HuggingFaceEmbeddings(model_name=embed_model)
+    # Для E5 моделей используем обёртку с query: префиксом
+    if is_e5_model(embed_model):
+        embeddings = E5QueryEmbeddings(model_name=embed_model)
+    else:
+        embeddings = HuggingFaceEmbeddings(model_name=embed_model)
+    
     vectorstore = FAISS.load_local(
         index_dir,
         embeddings,
