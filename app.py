@@ -22,6 +22,7 @@ DEFAULT_OLLAMA_MODEL = "qwen2.5:14b"  # Лучший для русского. А
 DEFAULT_EMBED_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 ENABLE_RERANKING = False  # Отключено: слишком много LLM вызовов
 ENABLE_EXTRACT_THEN_SYNTHESIZE = False  # Отключено: даёт бред
+ENABLE_QUERY_EXPANSION = True  # Расширение запроса синонимами
 
 # Системный промпт с Chain-of-Thought
 SYSTEM_PROMPT = """Ты — эксперт-аналитик, отвечающий на вопросы на основе книг.
@@ -298,6 +299,38 @@ def build_prompt(context: str, question: str) -> str:
     return SYSTEM_PROMPT.format(context=context, question=question)
 
 
+# --- Query Expansion ---
+
+QUERY_EXPANSION_PROMPT = """Расширь поисковый запрос синонимами и связанными терминами.
+
+Запрос: {question}
+
+Добавь:
+- Синонимы на русском
+- Английские эквиваленты терминов
+- Связанные понятия
+
+Отвечай ТОЛЬКО списком слов через пробел, без пояснений.
+Пример: "виды прибыли валовая прибыль gross profit чистая прибыль net income EBITDA"
+
+Расширенный запрос:"""
+
+
+def expand_query(question: str, llm) -> str:
+    """
+    Расширяет запрос синонимами и связанными терминами.
+    Помогает найти чанки с английскими терминами и синонимами.
+    """
+    prompt = QUERY_EXPANSION_PROMPT.format(question=question)
+    try:
+        expanded = llm.invoke(prompt)
+        # Объединяем оригинальный вопрос с расширением
+        result = f"{question} {expanded.strip()}"
+        return result
+    except Exception:
+        return question  # Fallback к оригинальному вопросу
+
+
 # --- LLM-based Reranking ---
 
 RERANK_PROMPT = """Оцени релевантность текста к вопросу по шкале 0-10.
@@ -448,12 +481,18 @@ def ask_question(
     # 1. Формируем полный вопрос с историей
     full_question = build_full_question(question, messages)
     
+    # 1.5 Query Expansion: расширяем запрос синонимами
+    if ENABLE_QUERY_EXPANSION:
+        search_query = expand_query(full_question, llm)
+    else:
+        search_query = full_question
+    
     # 2. Получаем документы (широкий охват)
     # Основной метод — invoke, fallback — get_relevant_documents
     try:
-        docs = retriever.invoke(full_question)
+        docs = retriever.invoke(search_query)
     except AttributeError:
-        docs = retriever.get_relevant_documents(full_question)
+        docs = retriever.get_relevant_documents(search_query)
     
     # Проверяем что получили список
     if not isinstance(docs, list):
