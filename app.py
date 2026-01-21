@@ -18,7 +18,6 @@ from langchain_ollama import OllamaLLM
 DEFAULT_INDEX_DIR = "rag_index/"
 DEFAULT_TOP_K = 8  # Увеличено с 4 для лучшего покрытия контекста
 DEFAULT_OLLAMA_MODEL = "qwen2.5:14b"  # Лучший для русского. Альтернатива: qwen2.5:7b
-DEFAULT_EMBED_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 ENABLE_QUERY_EXPANSION = True  # Расширение запроса синонимами
 
 # Системный промпт с Chain-of-Thought
@@ -104,17 +103,6 @@ class E5QueryEmbeddings(HuggingFaceEmbeddings):
     def embed_query(self, text: str) -> list[float]:
         """Добавляет query: префикс перед получением эмбеддинга запроса."""
         return super().embed_query(f"query: {text}")
-
-
-def get_embeddings(config: dict) -> HuggingFaceEmbeddings:
-    """
-    Создаёт embeddings используя embed_model ИЗ CONFIG (не из env!).
-    Для E5 моделей использует E5QueryEmbeddings с query: префиксом.
-    """
-    model_name = config["embed_model"]
-    if is_e5_model(model_name):
-        return E5QueryEmbeddings(model_name=model_name)
-    return HuggingFaceEmbeddings(model_name=model_name)
 
 
 def check_embed_model_mismatch(config: dict) -> bool:
@@ -247,6 +235,10 @@ def format_context(docs: list) -> str:
     Собирает контекст из документов с нумерацией "X из Y".
     Порядок: менее релевантные сначала, самый релевантный — в конце.
     (LLM лучше запоминают конец контекста — "recency bias")
+    
+    Поддерживает два формата metadata:
+    - Новый (HybridChunker): section/headings
+    - Старый (legacy): page_label/page
     """
     if not docs:
         return ""
@@ -257,14 +249,20 @@ def format_context(docs: list) -> str:
     
     fragments = []
     for i, doc in enumerate(reversed_docs, 1):
-        # Получаем номер страницы
-        page_label = doc.metadata.get("page_label")
-        if not page_label:
-            page_num = doc.metadata.get("page")
-            page_label = str(page_num + 1) if page_num is not None else "?"
+        # Новый формат: section от HybridChunker
+        section = doc.metadata.get("section")
+        if section:
+            location = section
+        else:
+            # Старый формат: page number
+            page_label = doc.metadata.get("page_label")
+            if not page_label:
+                page_num = doc.metadata.get("page")
+                page_label = str(page_num + 1) if page_num is not None else "?"
+            location = f"стр. {page_label}"
         
         # "X из Y" создаёт ощущение чек-листа для LLM
-        header = f"[Фрагмент {i} из {total}, стр. {page_label}]"
+        header = f"[Фрагмент {i} из {total}, {location}]"
         fragments.append(f"{header}\n{doc.page_content}")
     
     return "\n\n---\n\n".join(fragments)

@@ -26,7 +26,7 @@ pip install -r requirements.txt
 curl -fsSL https://ollama.com/install.sh | sh
 
 # Скачать модель
-ollama pull llama3
+ollama pull qwen2.5:14b
 
 # Запустить Ollama (если не запущена)
 ollama serve
@@ -56,11 +56,11 @@ streamlit run app.py
 
 | Переменная | Умолчание | Описание |
 |------------|-----------|----------|
-| `CHUNK_SIZE` | `1000` | Размер чанка в символах |
-| `CHUNK_OVERLAP` | `200` | Перекрытие между чанками |
-| `TOP_K` | `4` | Количество результатов retrieval |
-| `EMBED_MODEL` | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | Модель embeddings |
-| `OLLAMA_MODEL` | `llama3` | Модель Ollama |
+| `CHUNK_SIZE` | `1500` | Размер чанка в символах |
+| `CHUNK_OVERLAP` | `300` | Перекрытие между чанками |
+| `TOP_K` | `8` | Количество результатов retrieval |
+| `EMBED_MODEL` | `intfloat/multilingual-e5-base` | Модель embeddings |
+| `OLLAMA_MODEL` | `qwen2.5:14b` | Модель Ollama |
 | `DEBUG_DUMP_CHUNKS` | `0` | Сохранять чанки в `chunks.jsonl` для отладки |
 | `BOOKS_DIR` | `books/` | Папка с PDF файлами |
 | `INDEX_DIR` | `rag_index/` | Папка для FAISS индекса |
@@ -68,7 +68,7 @@ streamlit run app.py
 Пример:
 ```bash
 export CHUNK_SIZE=500
-export OLLAMA_MODEL=mistral
+export OLLAMA_MODEL=qwen2.5:7b
 python rag_setup.py
 ```
 
