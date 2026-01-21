@@ -333,6 +333,12 @@ def format_sources(docs: list) -> list[str]:
     Форматирует и дедуплицирует список источников.
     Сохраняет порядок первого появления.
     """
+    # DEBUG: показать сколько чанков найдено
+    print(f"[DEBUG] Найдено чанков: {len(docs)}")
+    for i, doc in enumerate(docs):
+        page = doc.metadata.get("page_label") or doc.metadata.get("page", "?")
+        print(f"  [{i+1}] стр. {page}: {doc.page_content[:80]}...")
+    
     seen = set()
     result = []
     for doc in docs:
