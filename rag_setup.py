@@ -13,14 +13,16 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_experimental.text_splitter import SemanticChunker
 
 
 # --- Константы по умолчанию ---
-DEFAULT_CHUNK_SIZE = 1000
-DEFAULT_CHUNK_OVERLAP = 200
+DEFAULT_CHUNK_SIZE = 1500
+DEFAULT_CHUNK_OVERLAP = 300
 DEFAULT_EMBED_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 DEFAULT_BOOKS_DIR = "books/"
 DEFAULT_INDEX_DIR = "rag_index/"
+USE_SEMANTIC_CHUNKER = True  # Новый умный чанкинг
 
 
 def get_env_int(name: str, default: int) -> int:
@@ -55,17 +57,42 @@ def load_documents(pdf_paths: list[str]) -> list:
     return all_pages
 
 
-def split_documents(docs: list, chunk_size: int, chunk_overlap: int) -> list:
+def split_documents(docs: list, chunk_size: int, chunk_overlap: int, embed_model: str = None) -> list:
     """
-    Разбивает на чанки через RecursiveCharacterTextSplitter.
-    Сохраняет metadata из оригинального документа.
+    Разбивает документы на чанки.
+    
+    Если USE_SEMANTIC_CHUNKER=True:
+      Использует SemanticChunker — группирует по смыслу через embeddings.
+      Связанные предложения остаются вместе, таблицы не разрываются.
+    
+    Иначе:
+      RecursiveCharacterTextSplitter — режет по количеству символов.
     """
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        separators=["\n\n", "\n", " ", ""],
-    )
-    return splitter.split_documents(docs)
+    if USE_SEMANTIC_CHUNKER and embed_model:
+        print(f"  🧠 Используем SemanticChunker (умный чанкинг по смыслу)")
+        embeddings = HuggingFaceEmbeddings(model_name=embed_model)
+        splitter = SemanticChunker(
+            embeddings=embeddings,
+            breakpoint_threshold_type="percentile",  # или "standard_deviation"
+            breakpoint_threshold_amount=70,  # чем выше, тем крупнее чанки
+        )
+        # SemanticChunker работает с текстом, нужно обработать каждый документ
+        all_chunks = []
+        for doc in docs:
+            chunks = splitter.create_documents(
+                [doc.page_content],
+                metadatas=[doc.metadata]
+            )
+            all_chunks.extend(chunks)
+        return all_chunks
+    else:
+        print(f"  ✂️ Используем RecursiveCharacterTextSplitter")
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            separators=["\n\n", "\n", " ", ""],
+        )
+        return splitter.split_documents(docs)
 
 
 def save_chunks_for_debug(chunks: list, path: str) -> None:
@@ -168,7 +195,7 @@ def rebuild_full_index(books_dir: str, index_dir: str) -> bool:
 
     # 3. Чанкинг
     print("✂️ Разбиение на чанки...")
-    chunks = split_documents(pages, chunk_size, chunk_overlap)
+    chunks = split_documents(pages, chunk_size, chunk_overlap, embed_model)
     print(f"   Создано чанков: {len(chunks)}")
     print()
 
