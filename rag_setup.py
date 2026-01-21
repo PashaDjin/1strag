@@ -22,7 +22,7 @@ DEFAULT_CHUNK_OVERLAP = 300
 DEFAULT_EMBED_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 DEFAULT_BOOKS_DIR = "books/"
 DEFAULT_INDEX_DIR = "rag_index/"
-USE_SEMANTIC_CHUNKER = True  # Новый умный чанкинг
+USE_SEMANTIC_CHUNKER = False  # Откат: RecursiveCharacterTextSplitter работает лучше
 
 
 def is_e5_model(model_name: str) -> bool:
