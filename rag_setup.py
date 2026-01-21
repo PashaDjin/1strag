@@ -6,6 +6,7 @@ HybridChunker:
 - Понимает структуру документа (заголовки → чанки)
 - Token-aware (не режет посередине)
 - Добавляет headings в metadata
+- Таблицы в Markdown формате (MarkdownTableSerializer)
 """
 
 import glob
@@ -16,17 +17,34 @@ from pathlib import Path
 
 from docling.document_converter import DocumentConverter
 from docling.chunking import HybridChunker
+from docling_core.transforms.chunker.hierarchical_chunker import (
+    ChunkingDocSerializer,
+    ChunkingSerializerProvider,
+)
+from docling_core.transforms.serializer.markdown import MarkdownTableSerializer
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 
 
 # --- Константы по умолчанию ---
-DEFAULT_MAX_TOKENS = 800  # Токены, не символы! ~600-800 слов
+DEFAULT_MAX_TOKENS = 500  # Токены! E5-base лимит 512, оставляем запас
 DEFAULT_EMBED_MODEL = "intfloat/multilingual-e5-base"
 DEFAULT_BOOKS_DIR = "books/"
 DEFAULT_INDEX_DIR = "rag_index/"
 CACHE_DIR = ".docling_cache"  # Кеш DoclingDocument в JSON
+
+
+class MarkdownTableSerializerProvider(ChunkingSerializerProvider):
+    """
+    Кастомный provider для HybridChunker.
+    Таблицы сериализуются в Markdown формат вместо triplet (Key=Value).
+    """
+    def get_serializer(self, doc):
+        return ChunkingDocSerializer(
+            doc=doc,
+            table_serializer=MarkdownTableSerializer(),
+        )
 
 
 def is_e5_model(model_name: str) -> bool:
@@ -141,10 +159,14 @@ def chunk_with_hybrid_chunker(
     - НЕ разрывает таблицы посередине
     - Token-aware (учитывает max_tokens)
     - Добавляет headings в metadata
+    - Таблицы в Markdown формате (не Key=Value каша)
+    
+    contextualize() добавляет заголовки в текст для лучшего embedding.
     """
     chunker = HybridChunker(
         max_tokens=max_tokens,
         merge_peers=True,  # Объединяет маленькие соседние чанки
+        serializer_provider=MarkdownTableSerializerProvider(),  # Таблицы в Markdown!
     )
     
     chunks = list(chunker.chunk(dl_doc=docling_doc))
@@ -160,8 +182,15 @@ def chunk_with_hybrid_chunker(
         
         section = " > ".join(headings) if headings else f"Чанк {i+1}"
         
+        # contextualize() добавляет headings в текст для лучшего embedding
+        # Это помогает E5 понять контекст чанка
+        try:
+            enriched_text = chunker.contextualize(chunk)
+        except Exception:
+            enriched_text = chunk.text
+        
         doc = Document(
-            page_content=chunk.text,
+            page_content=enriched_text,
             metadata={
                 "source": pdf_path,
                 "section": section,
@@ -256,7 +285,7 @@ def rebuild_full_index(books_dir: str, index_dir: str) -> bool:
     print(f"  📁 Папка индекса: {index_dir}")
     print(f"  📏 max_tokens: {max_tokens}")
     print(f"  🧠 embed_model: {embed_model}")
-    print(f"  🔧 chunker: HybridChunker")
+    print(f"  🔧 chunker: HybridChunker + MarkdownTableSerializer")
     print()
 
     # 1. Получаем список PDF
