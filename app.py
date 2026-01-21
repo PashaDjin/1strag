@@ -559,6 +559,14 @@ def main():
                 with st.expander("📖 Источники", expanded=True):
                     for source in sources:
                         st.caption(f"• {source}")
+                
+                # DEBUG: полный текст чанков
+                with st.expander("🔍 DEBUG: Полный текст чанков", expanded=False):
+                    for i, doc in enumerate(docs):
+                        section = doc.metadata.get("section", doc.metadata.get("page_label", "?"))
+                        st.markdown(f"**[{i+1}] {section}**")
+                        st.code(doc.page_content, language=None)
+                        st.divider()
             else:
                 st.caption("📖 Источники: (нет)")
         
