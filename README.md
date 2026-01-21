@@ -56,8 +56,7 @@ streamlit run app.py
 
 | Переменная | Умолчание | Описание |
 |------------|-----------|----------|
-| `CHUNK_SIZE` | `1500` | Размер чанка в символах |
-| `CHUNK_OVERLAP` | `300` | Перекрытие между чанками |
+| `MAX_TOKENS` | `800` | Размер чанка в токенах (HybridChunker) |
 | `TOP_K` | `16` | Количество результатов retrieval |
 | `EMBED_MODEL` | `intfloat/multilingual-e5-base` | Модель embeddings |
 | `OLLAMA_MODEL` | `qwen2.5:14b` | Модель Ollama |
@@ -67,7 +66,7 @@ streamlit run app.py
 
 Пример:
 ```bash
-export CHUNK_SIZE=500
+export MAX_TOKENS=1000
 export OLLAMA_MODEL=qwen2.5:7b
 python rag_setup.py
 ```
