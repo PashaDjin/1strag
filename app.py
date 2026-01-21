@@ -82,14 +82,12 @@ def load_index_config(index_dir: str) -> dict | None:
     with open(config_path, "r", encoding="utf-8") as f:
         config = json.load(f)
     
-    # Проверяем обязательные ключи
-    required = ["embed_model", "chunk_size", "chunk_overlap"]
-    for key in required:
-        if key not in config:
-            raise RuntimeError(
-                f"❌ В config.json отсутствует ключ '{key}'.\n"
-                f"   Пересоберите индекс: python rag_setup.py"
-            )
+    # Проверяем только embed_model — остальное опционально
+    if "embed_model" not in config:
+        raise RuntimeError(
+            "❌ В config.json отсутствует ключ 'embed_model'.\n"
+            "   Пересоберите индекс: python rag_setup.py"
+        )
     return config
 
 
@@ -469,8 +467,8 @@ def main():
             st.success("✅ Индекс загружен")
             st.caption(f"**PDF:** {config.get('pdf_count', '?')}")
             st.caption(f"**Чанков:** {config.get('chunk_count', '?')}")
-            st.caption(f"**chunk_size:** {config.get('chunk_size', '?')}")
-            st.caption(f"**overlap:** {config.get('chunk_overlap', '?')}")
+            st.caption(f"**Chunker:** {config.get('chunker', 'legacy')}")
+            st.caption(f"**Max tokens:** {config.get('max_tokens', config.get('chunk_size', '?'))}")
             
             # Проверка несовпадения модели
             if check_embed_model_mismatch(config):
