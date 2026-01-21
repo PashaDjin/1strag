@@ -313,19 +313,28 @@ def expand_query(question: str, llm) -> str:
 
 def format_source(doc) -> str:
     """
-    Форматирует источник в ЕДИНЫЙ формат: "book.pdf [стр. 23]"
+    Форматирует источник.
+    
+    Новый формат с HybridChunker: "book.pdf [Глава 2 > Виды прибыли]"
+    Старый формат с page: "book.pdf [стр. 23]"
     """
     filename = os.path.basename(doc.metadata.get("source", "unknown"))
     
-    # Предпочитаем page_label, иначе page+1
+    # Новый формат: headings от HybridChunker
+    section = doc.metadata.get("section")
+    if section:
+        return f"{filename} [{section}]"
+    
+    # Старый формат: page number
     page_label = doc.metadata.get("page_label")
     if page_label:
-        page = page_label
-    else:
-        page_num = doc.metadata.get("page")
-        page = str(page_num + 1) if page_num is not None else "?"
+        return f"{filename} [стр. {page_label}]"
     
-    return f"{filename} [стр. {page}]"
+    page_num = doc.metadata.get("page")
+    if page_num is not None:
+        return f"{filename} [стр. {page_num + 1}]"
+    
+    return filename
 
 
 def format_sources(docs: list) -> list[str]:
@@ -336,8 +345,9 @@ def format_sources(docs: list) -> list[str]:
     # DEBUG: показать сколько чанков найдено
     print(f"[DEBUG] Найдено чанков: {len(docs)}")
     for i, doc in enumerate(docs):
-        page = doc.metadata.get("page_label") or doc.metadata.get("page", "?")
-        print(f"  [{i+1}] стр. {page}: {doc.page_content[:80]}...")
+        section = doc.metadata.get("section", "")
+        preview = doc.page_content[:80].replace("\n", " ")
+        print(f"  [{i+1}] {section}: {preview}...")
     
     seen = set()
     result = []
@@ -347,6 +357,7 @@ def format_sources(docs: list) -> list[str]:
             seen.add(source)
             result.append(source)
     return result
+
 
 
 # --- Главная функция ответа ---
