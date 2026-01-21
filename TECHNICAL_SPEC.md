@@ -308,7 +308,7 @@ main()
 streamlit
 langchain
 langchain-community
-langchain-ollama
+langchain-ollama 
 langchain-huggingface
 faiss-cpu
 pypdf

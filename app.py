@@ -17,8 +17,10 @@ from langchain_ollama import OllamaLLM
 # --- Константы по умолчанию ---
 DEFAULT_INDEX_DIR = "rag_index/"
 DEFAULT_TOP_K = 8  # Увеличено с 4 для лучшего покрытия контекста
+DEFAULT_RERANK_TOP_K = 4  # После reranking оставляем лучшие 4
 DEFAULT_OLLAMA_MODEL = "llama3"
 DEFAULT_EMBED_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+ENABLE_RERANKING = True  # Включить LLM-based reranking
 
 # Системный промпт (из TECHNICAL_SPEC.md)
 SYSTEM_PROMPT = """Ты — помощник, отвечающий на основе предоставленного контекста из книг.
@@ -27,11 +29,12 @@ SYSTEM_PROMPT = """Ты — помощник, отвечающий на осно
 1. Отвечай на основе информации из контекста. Если вопрос абстрактный (например, "какие виды X есть"), ищи в контексте конкретные примеры X и перечисляй их.
 2. Отвечай ТОЛЬКО на РУССКОМ языке, даже если контекст содержит английские термины.
 3. Давай ПОДРОБНЫЕ и РАЗВЁРНУТЫЕ ответы. Если в контексте есть списки или перечисления — приводи их ПОЛНОСТЬЮ.
-4. Если в контексте НЕТ НИКАКОЙ связанной информации — отвечай: "В книгах нет информации по этому вопросу." Но если есть СВЯЗАННЫЕ термины или примеры — используй их для ответа.
-5. НЕ придумывай факты, которых нет в контексте.
-6. НЕ добавляй источники/ссылки/страницы в текст ответа. Источники будут показаны отдельно автоматически.
-7. НЕ придумывай номера страниц или названия файлов.
-8. Используй форматирование: списки, абзацы для читабельности.
+4. ВНИМАТЕЛЬНО ищи в контексте ТАБЛИЦЫ, СПИСКИ и СТРУКТУРИРОВАННЫЕ ДАННЫЕ. Если видишь числа в столбцах или строки вида "Название ... Значение" — это таблица, извлекай ВСЕ строки.
+5. Если в контексте НЕТ НИКАКОЙ связанной информации — отвечай: "В книгах нет информации по этому вопросу." Но если есть СВЯЗАННЫЕ термины или примеры — используй их для ответа.
+6. НЕ придумывай факты, которых нет в контексте.
+7. НЕ добавляй источники/ссылки/страницы в текст ответа. Источники будут показаны отдельно автоматически.
+8. НЕ придумывай номера страниц или названия файлов.
+9. Используй форматирование: списки, абзацы для читабельности.
 
 Контекст из книг:
 {context}
@@ -223,6 +226,64 @@ def build_prompt(context: str, question: str) -> str:
     return SYSTEM_PROMPT.format(context=context, question=question)
 
 
+# --- LLM-based Reranking ---
+
+RERANK_PROMPT = """Оцени релевантность текста к вопросу по шкале 0-10.
+Отвечай ТОЛЬКО числом от 0 до 10.
+
+Вопрос: {question}
+
+Текст: {chunk}
+
+Оценка (0-10):"""
+
+
+def rerank_docs(docs: list, question: str, llm, top_k: int = 4) -> list:
+    """
+    LLM-based reranking: оценивает релевантность каждого чанка.
+    Возвращает top_k лучших документов отсортированных по релевантности.
+    
+    Это двухэтапный процесс:
+    1. Retriever возвращает много чанков (широкий охват)
+    2. LLM оценивает каждый и отбирает самые релевантные (точность)
+    """
+    if not docs or len(docs) <= top_k:
+        return docs
+    
+    scored_docs = []
+    
+    for doc in docs:
+        # Ограничиваем размер чанка для оценки (экономим токены)
+        chunk_preview = doc.page_content[:800]
+        prompt = RERANK_PROMPT.format(question=question, chunk=chunk_preview)
+        
+        try:
+            response = llm.invoke(prompt)
+            # Извлекаем число из ответа
+            score = extract_score(response)
+            scored_docs.append((score, doc))
+        except Exception:
+            # При ошибке даём средний балл
+            scored_docs.append((5, doc))
+    
+    # Сортируем по убыванию оценки
+    scored_docs.sort(key=lambda x: x[0], reverse=True)
+    
+    # Возвращаем top_k лучших
+    return [doc for score, doc in scored_docs[:top_k]]
+
+
+def extract_score(response: str) -> int:
+    """Извлекает числовую оценку из ответа LLM."""
+    import re
+    # Ищем первое число в ответе
+    match = re.search(r'\b(\d+)\b', response.strip())
+    if match:
+        score = int(match.group(1))
+        return min(max(score, 0), 10)  # Ограничиваем 0-10
+    return 5  # Default
+
+
 # --- Форматирование источников ---
 
 def format_source(doc) -> str:
@@ -275,7 +336,7 @@ def ask_question(
     # 1. Формируем полный вопрос с историей
     full_question = build_full_question(question, messages)
     
-    # 2. Получаем документы
+    # 2. Получаем документы (широкий охват)
     # Основной метод — invoke, fallback — get_relevant_documents
     try:
         docs = retriever.invoke(full_question)
@@ -289,6 +350,15 @@ def ask_question(
     # 3. Если нет документов — НЕ вызываем LLM
     if not docs:
         return "В книгах нет информации по этому вопросу.", []
+    
+    # 3.5 Reranking: LLM отбирает самые релевантные чанки
+    if ENABLE_RERANKING and len(docs) > DEFAULT_RERANK_TOP_K:
+        docs = rerank_docs(
+            docs=docs,
+            question=full_question,
+            llm=llm,
+            top_k=DEFAULT_RERANK_TOP_K
+        )
     
     # 4. Собираем контекст
     context = format_context(docs)
