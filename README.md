@@ -58,7 +58,7 @@ streamlit run app.py
 |------------|-----------|----------|
 | `CHUNK_SIZE` | `1500` | Размер чанка в символах |
 | `CHUNK_OVERLAP` | `300` | Перекрытие между чанками |
-| `TOP_K` | `8` | Количество результатов retrieval |
+| `TOP_K` | `16` | Количество результатов retrieval |
 | `EMBED_MODEL` | `intfloat/multilingual-e5-base` | Модель embeddings |
 | `OLLAMA_MODEL` | `qwen2.5:14b` | Модель Ollama |
 | `DEBUG_DUMP_CHUNKS` | `0` | Сохранять чанки в `chunks.jsonl` для отладки |
