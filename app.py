@@ -16,7 +16,7 @@ from langchain_ollama import OllamaLLM
 
 # --- Константы по умолчанию ---
 DEFAULT_INDEX_DIR = "rag_index/"
-DEFAULT_TOP_K = 16  # Увеличено для HybridChunker (чанки меньше → нужно больше)
+DEFAULT_TOP_K = 20  # Увеличено: чанки 500 токенов → нужно больше для полного контекста
 DEFAULT_OLLAMA_MODEL = "qwen2.5:14b"  # Лучший для русского. Альтернатива: qwen2.5:7b
 ENABLE_QUERY_EXPANSION = True  # Расширение запроса синонимами
 

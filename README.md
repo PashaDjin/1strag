@@ -56,8 +56,8 @@ streamlit run app.py
 
 | Переменная | Умолчание | Описание |
 |------------|-----------|----------|
-| `MAX_TOKENS` | `800` | Размер чанка в токенах (HybridChunker) |
-| `TOP_K` | `16` | Количество результатов retrieval |
+| `MAX_TOKENS` | `500` | Размер чанка в токенах (E5 лимит 512) |
+| `TOP_K` | `20` | Количество результатов retrieval |
 | `EMBED_MODEL` | `intfloat/multilingual-e5-base` | Модель embeddings |
 | `OLLAMA_MODEL` | `qwen2.5:14b` | Модель Ollama |
 | `DEBUG_DUMP_CHUNKS` | `0` | Сохранять чанки в `chunks.jsonl` для отладки |
