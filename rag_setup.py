@@ -13,7 +13,7 @@ from docling.document_converter import DocumentConverter
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import MarkdownTextSplitter, RecursiveCharacterTextSplitter
-from langchain.schema import Document
+from langchain_core.documents import Document
 
 
 DEFAULT_CHUNK_SIZE = 1500
