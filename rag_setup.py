@@ -285,7 +285,7 @@ def rebuild_full_index(books_dir: str, index_dir: str) -> bool:
     print(f"  📁 Папка индекса: {index_dir}")
     print(f"  📏 max_tokens: {max_tokens}")
     print(f"  🧠 embed_model: {embed_model}")
-    print(f"  🔧 chunker: HybridChunker + MarkdownTableSerializer")
+    print(f"  🔧 chunker: HybridChunker")
     print()
 
     # 1. Получаем список PDF
