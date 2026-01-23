@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Streamlit UI + RAG-чат с retriever + llm напрямую.
 
