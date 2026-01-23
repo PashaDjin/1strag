@@ -18,7 +18,6 @@ from langchain_ollama import OllamaLLM
 DEFAULT_INDEX_DIR = "rag_index/"
 DEFAULT_TOP_K = 20  # Увеличено: чанки 500 токенов → нужно больше для полного контекста
 DEFAULT_OLLAMA_MODEL = "qwen2.5:14b"  # Лучший для русского. Альтернатива: qwen2.5:7b
-ENABLE_QUERY_EXPANSION = True  # Расширение запроса синонимами
 
 # Системный промпт — оптимизирован для полных ответов
 SYSTEM_PROMPT = """Ты — эксперт-консультант, готовящий материал для обучающего курса.
@@ -63,11 +62,6 @@ def get_env_int(name: str, default: int) -> int:
         return default
 
 
-def get_env_str(name: str, default: str) -> str:
-    """Читает строку из env с дефолтом."""
-    return os.getenv(name, default)
-
-
 # --- Загрузка конфига и индекса ---
 
 def load_index_config(index_dir: str) -> dict | None:
@@ -104,17 +98,6 @@ class E5QueryEmbeddings(HuggingFaceEmbeddings):
     def embed_query(self, text: str) -> list[float]:
         """Добавляет query: префикс перед получением эмбеддинга запроса."""
         return super().embed_query(f"query: {text}")
-
-
-def check_embed_model_mismatch(config: dict) -> bool:
-    """
-    Сравнивает config["embed_model"] с os.getenv("EMBED_MODEL").
-    Если отличаются — возвращает True (показать warning).
-    """
-    env_model = os.getenv("EMBED_MODEL")
-    if env_model is None:
-        return False
-    return env_model != config["embed_model"]
 
 
 @st.cache_resource
@@ -158,8 +141,7 @@ def get_retriever(vectorstore, top_k: int):
 @st.cache_resource
 def get_llm(model: str) -> OllamaLLM:
     """Создаёт LLM из Ollama."""
-    # OLLAMA_BASE_URL позволяет использовать удалённую Ollama (например, через ngrok)
-    base_url = get_env_str("OLLAMA_BASE_URL", "http://localhost:11434")
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     return OllamaLLM(
         base_url=base_url,
         model=model,
@@ -175,7 +157,7 @@ def check_ollama_connection(llm: OllamaLLM) -> bool:
     import urllib.request
     import urllib.error
     
-    base_url = get_env_str("OLLAMA_BASE_URL", "http://localhost:11434")
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     try:
         req = urllib.request.Request(f"{base_url}/api/tags", method="GET")
         with urllib.request.urlopen(req, timeout=5) as response:
@@ -184,86 +166,24 @@ def check_ollama_connection(llm: OllamaLLM) -> bool:
         return False
 
 
-# --- История и промпт ---
-
-def build_history_text(messages: list[dict], max_pairs: int = 3) -> str:
-    """
-    Конвертирует UI-историю в текст для промпта.
-    Берёт только последние max_pairs пар (user, assistant).
-    Если история пуста — возвращает пустую строку.
-    """
-    if not messages:
-        return ""
-    
-    # Собираем пары user/assistant
-    pairs = []
-    i = 0
-    while i < len(messages) - 1:
-        if messages[i].get("role") == "user" and messages[i + 1].get("role") == "assistant":
-            pairs.append((messages[i]["content"], messages[i + 1]["content"]))
-            i += 2
-        else:
-            i += 1
-    
-    if not pairs:
-        return ""
-    
-    # Берём последние max_pairs
-    pairs = pairs[-max_pairs:]
-    
-    # Форматируем
-    lines = []
-    for user_msg, assistant_msg in pairs:
-        lines.append(f"Вопрос: {user_msg}")
-        lines.append(f"Ответ: {assistant_msg}")
-        lines.append("")  # Пустая строка между парами
-    
-    return "\n".join(lines).strip()
-
-
-def build_full_question(user_question: str, messages: list[dict], max_pairs: int = 3) -> str:
-    """
-    Формирует полный вопрос с историей для retriever.
-    """
-    history_text = build_history_text(messages, max_pairs)
-    if history_text:
-        return f"Предыдущий диалог:\n{history_text}\n\nТекущий вопрос: {user_question}"
-    return user_question
-
+# --- Контекст и промпт ---
 
 def format_context(docs: list) -> str:
     """
     Собирает контекст из документов с нумерацией "X из Y".
     Порядок: менее релевантные сначала, самый релевантный — в конце.
     (LLM лучше запоминают конец контекста — "recency bias")
-    
-    Поддерживает два формата metadata:
-    - Новый (HybridChunker): section/headings
-    - Старый (legacy): page_label/page
     """
     if not docs:
         return ""
     
     total = len(docs)
-    # Переворачиваем: самый релевантный будет последним
     reversed_docs = list(reversed(docs))
     
     fragments = []
     for i, doc in enumerate(reversed_docs, 1):
-        # Новый формат: section от HybridChunker
-        section = doc.metadata.get("section")
-        if section:
-            location = section
-        else:
-            # Старый формат: page number
-            page_label = doc.metadata.get("page_label")
-            if not page_label:
-                page_num = doc.metadata.get("page")
-                page_label = str(page_num + 1) if page_num is not None else "?"
-            location = f"стр. {page_label}"
-        
-        # "X из Y" создаёт ощущение чек-листа для LLM
-        header = f"[Фрагмент {i} из {total}, {location}]"
+        section = doc.metadata.get("section", "?")
+        header = f"[Фрагмент {i} из {total}, {section}]"
         fragments.append(f"{header}\n{doc.page_content}")
     
     return "\n\n---\n\n".join(fragments)
@@ -278,82 +198,19 @@ def build_prompt(context: str, question: str, chunk_count: int) -> str:
     )
 
 
-# --- Query Expansion ---
-
-QUERY_EXPANSION_PROMPT = """Расширь поисковый запрос синонимами и связанными терминами.
-
-Запрос: {question}
-
-Добавь:
-- Синонимы на русском
-- Английские эквиваленты терминов
-- Связанные понятия
-
-Отвечай ТОЛЬКО списком слов через пробел, без пояснений.
-Пример: "виды прибыли валовая прибыль gross profit чистая прибыль net income EBITDA retained earnings"
-
-Расширенный запрос:"""
-
-
-def expand_query(question: str, llm) -> str:
-    """
-    Расширяет запрос синонимами и связанными терминами.
-    Помогает найти чанки с английскими терминами и синонимами.
-    """
-    prompt = QUERY_EXPANSION_PROMPT.format(question=question)
-    try:
-        expanded = llm.invoke(prompt)
-        # Объединяем оригинальный вопрос с расширением
-        result = f"{question} {expanded.strip()}"
-        return result
-    except Exception:
-        return question  # Fallback к оригинальному вопросу
-
-
 # --- Форматирование источников ---
-
-def format_source(doc) -> str:
-    """
-    Форматирует источник.
-    
-    Новый формат с HybridChunker: "book.pdf [Глава 2 > Виды прибыли]"
-    Старый формат с page: "book.pdf [стр. 23]"
-    """
-    filename = os.path.basename(doc.metadata.get("source", "unknown"))
-    
-    # Новый формат: headings от HybridChunker
-    section = doc.metadata.get("section")
-    if section:
-        return f"{filename} [{section}]"
-    
-    # Старый формат: page number
-    page_label = doc.metadata.get("page_label")
-    if page_label:
-        return f"{filename} [стр. {page_label}]"
-    
-    page_num = doc.metadata.get("page")
-    if page_num is not None:
-        return f"{filename} [стр. {page_num + 1}]"
-    
-    return filename
-
 
 def format_sources(docs: list) -> list[str]:
     """
     Форматирует и дедуплицирует список источников.
     Сохраняет порядок первого появления.
     """
-    # DEBUG: показать сколько чанков найдено
-    print(f"[DEBUG] Найдено чанков: {len(docs)}")
-    for i, doc in enumerate(docs):
-        section = doc.metadata.get("section", "")
-        preview = doc.page_content[:80].replace("\n", " ")
-        print(f"  [{i+1}] {section}: {preview}...")
-    
     seen = set()
     result = []
     for doc in docs:
-        source = format_source(doc)
+        filename = os.path.basename(doc.metadata.get("source", "unknown"))
+        section = doc.metadata.get("section", "")
+        source = f"{filename} [{section}]" if section else filename
         if source not in seen:
             seen.add(source)
             result.append(source)
@@ -363,49 +220,23 @@ def format_sources(docs: list) -> list[str]:
 
 # --- Главная функция ответа ---
 
-def ask_question(
-    retriever,
-    llm,
-    question: str,
-    messages: list[dict],
-) -> tuple[str, list]:
+def ask_question(retriever, llm, question: str) -> tuple[str, list]:
     """
-    Отвечает на вопрос используя retriever и llm НАПРЯМУЮ.
-    
-    НЕ используем RetrievalQA chain!
-    
-    Возвращает (answer, docs) где docs — список Document для sources.
+    Отвечает на вопрос используя retriever и llm напрямую.
+    Возвращает (answer, docs).
     """
-    # 1. Формируем полный вопрос с историей
-    full_question = build_full_question(question, messages)
+    # 1. Получаем документы
+    docs = retriever.invoke(question)
     
-    # 1.5 Query Expansion: расширяем запрос синонимами
-    if ENABLE_QUERY_EXPANSION:
-        search_query = expand_query(full_question, llm)
-    else:
-        search_query = full_question
-    
-    # 2. Получаем документы (широкий охват)
-    # Основной метод — invoke, fallback — get_relevant_documents
-    try:
-        docs = retriever.invoke(search_query)
-    except AttributeError:
-        docs = retriever.get_relevant_documents(search_query)
-    
-    # Проверяем что получили список
-    if not isinstance(docs, list):
-        docs = list(docs) if docs else []
-    
-    # 3. Если нет документов — НЕ вызываем LLM
+    # 2. Если нет документов — НЕ вызываем LLM
     if not docs:
         return "В книгах нет информации по этому вопросу.", []
     
-    # 4. Формируем контекст и получаем ответ
+    # 3. Формируем контекст и получаем ответ
     context = format_context(docs)
-    prompt = build_prompt(context, full_question, len(docs))
+    prompt = build_prompt(context, question, len(docs))
     answer = llm.invoke(prompt)
     
-    # 5. Возвращаем ответ и документы
     return answer, docs
 
 
@@ -429,10 +260,10 @@ def main():
         st.session_state.messages = []
     
     # Получаем пути из env
-    index_dir = get_env_str("INDEX_DIR", DEFAULT_INDEX_DIR)
-    books_dir = get_env_str("BOOKS_DIR", "books/")
+    index_dir = os.getenv("INDEX_DIR", DEFAULT_INDEX_DIR)
+    books_dir = os.getenv("BOOKS_DIR", "books/")
     top_k = get_env_int("TOP_K", DEFAULT_TOP_K)
-    ollama_model = get_env_str("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
+    ollama_model = os.getenv("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
     
     # --- Sidebar ---
     with st.sidebar:
@@ -472,10 +303,6 @@ def main():
             st.caption(f"**Чанков:** {config.get('chunk_count', '?')}")
             st.caption(f"**Chunker:** {config.get('chunker', 'legacy')}")
             st.caption(f"**Max tokens:** {config.get('max_tokens', config.get('chunk_size', '?'))}")
-            
-            # Проверка несовпадения модели
-            if check_embed_model_mismatch(config):
-                st.warning("⚠️ EMBED_MODEL в env отличается от config.json")
         else:
             st.warning("⚠️ Индекс не найден")
             st.caption("Положите PDF в books/ и нажмите 'Пересобрать индекс'")
@@ -544,9 +371,7 @@ def main():
         with st.chat_message("assistant"):
             with st.spinner("Думаю..."):
                 try:
-                    # Передаём историю БЕЗ текущего сообщения (оно уже в question)
-                    history = st.session_state.messages[:-1]
-                    answer, docs = ask_question(retriever, llm, user_input, history)
+                    answer, docs = ask_question(retriever, llm, user_input)
                     sources = format_sources(docs)
                     
                 except RuntimeError as e:
@@ -564,16 +389,6 @@ def main():
                 with st.expander("📖 Источники", expanded=True):
                     for source in sources:
                         st.caption(f"• {source}")
-                
-                # DEBUG: полный текст чанков
-                with st.expander("🔍 DEBUG: Полный текст чанков", expanded=False):
-                    for i, doc in enumerate(docs):
-                        section = doc.metadata.get("section", doc.metadata.get("page_label", "?"))
-                        st.markdown(f"**[{i+1}] {section}**")
-                        st.code(doc.page_content, language=None)
-                        st.divider()
-            else:
-                st.caption("📖 Источники: (нет)")
         
         # Сохраняем в историю
         st.session_state.messages.append({
