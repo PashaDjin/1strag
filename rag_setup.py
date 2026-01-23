@@ -174,6 +174,10 @@ def chunk_with_hybrid_chunker(
         except Exception:
             enriched_text = chunk.text
         
+        # Фильтр мусорных чанков
+        if is_junk_chunk(enriched_text, section):
+            continue
+        
         doc = Document(
             page_content=enriched_text,
             metadata={
@@ -186,6 +190,62 @@ def chunk_with_hybrid_chunker(
         documents.append(doc)
     
     return documents
+
+
+# --- Фильтр мусорных чанков ---
+
+# Точные маркеры мусора (регистронезависимо)
+JUNK_MARKERS = [
+    "isbn",
+    "© 20",  # Copyright
+    "все права защищены",
+    "издательство",
+    "отпечатано в типографии",
+    "подписано в печать",
+    "тираж",
+    "формат 60×90",
+    "усл. печ. л.",
+]
+
+# Section-маркеры мусора
+JUNK_SECTIONS = [
+    "содержание",
+    "оглавление", 
+    "contents",
+]
+
+
+def is_junk_chunk(text: str, section: str) -> bool:
+    """
+    Определяет, является ли чанк мусорным.
+    
+    Жёсткий фильтр:
+    - ISBN, copyright, выходные данные
+    - Очень короткие чанки (< 50 символов)
+    - Чистое оглавление
+    
+    НЕ фильтруем:
+    - Предисловия, введения (могут быть полезны)
+    - Эпиграфы > 100 символов
+    """
+    text_lower = text.lower()
+    section_lower = section.lower()
+    
+    # 1. Слишком короткий чанк — скорее всего мусор
+    if len(text.strip()) < 50:
+        return True
+    
+    # 2. Содержит маркеры издательской информации
+    for marker in JUNK_MARKERS:
+        if marker in text_lower:
+            return True
+    
+    # 3. Section — чистое оглавление
+    for junk_section in JUNK_SECTIONS:
+        if section_lower == junk_section:
+            return True
+    
+    return False
 
 
 def save_index_config(
