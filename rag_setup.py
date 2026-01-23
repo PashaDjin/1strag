@@ -151,18 +151,7 @@ def chunk_with_hybrid_chunker(
     pdf_path: str,
     max_tokens: int,
 ) -> list[Document]:
-    """
-    Чанкит DoclingDocument через HybridChunker.
-    
-    HybridChunker:
-    - Понимает структуру документа
-    - НЕ разрывает таблицы посередине
-    - Token-aware (учитывает max_tokens)
-    - Добавляет headings в metadata
-    - Таблицы в Markdown формате (не Key=Value каша)
-    
-    contextualize() добавляет заголовки в текст для лучшего embedding.
-    """
+    """Чанкит DoclingDocument через HybridChunker с Markdown таблицами."""
     chunker = HybridChunker(
         max_tokens=max_tokens,
         merge_peers=True,  # Объединяет маленькие соседние чанки
@@ -171,10 +160,8 @@ def chunk_with_hybrid_chunker(
     
     chunks = list(chunker.chunk(dl_doc=docling_doc))
     
-    # Конвертируем в LangChain Documents
     documents = []
     for i, chunk in enumerate(chunks):
-        # Получаем headings для section
         headings = []
         if hasattr(chunk, 'meta') and chunk.meta:
             if hasattr(chunk.meta, 'headings') and chunk.meta.headings:
@@ -182,8 +169,6 @@ def chunk_with_hybrid_chunker(
         
         section = " > ".join(headings) if headings else f"Чанк {i+1}"
         
-        # contextualize() добавляет headings в текст для лучшего embedding
-        # Это помогает E5 понять контекст чанка
         try:
             enriched_text = chunker.contextualize(chunk)
         except Exception:
@@ -201,25 +186,6 @@ def chunk_with_hybrid_chunker(
         documents.append(doc)
     
     return documents
-
-
-def save_chunks_for_debug(chunks: list[Document], path: str) -> None:
-    """
-    Сохраняет чанки в JSONL для отладки.
-    ВНИМАНИЕ: Файл может содержать текст из PDF (копирайт). 
-    Не коммитить в git!
-    """
-    with open(path, "w", encoding="utf-8") as f:
-        for i, chunk in enumerate(chunks):
-            record = {
-                "chunk_id": i,
-                "source": chunk.metadata.get("source", "unknown"),
-                "section": chunk.metadata.get("section", ""),
-                "headings": chunk.metadata.get("headings", []),
-                "text": chunk.page_content,
-                "text_len": len(chunk.page_content),
-            }
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 def save_index_config(
@@ -276,7 +242,6 @@ def rebuild_full_index(books_dir: str, index_dir: str) -> bool:
     # Читаем параметры из env
     max_tokens = get_env_int("MAX_TOKENS", DEFAULT_MAX_TOKENS)
     embed_model = os.getenv("EMBED_MODEL", DEFAULT_EMBED_MODEL)
-    debug_dump = os.getenv("DEBUG_DUMP_CHUNKS", "0") == "1"
 
     print("=" * 50)
     print("🚀 Сборка FAISS индекса (Docling + HybridChunker)")
@@ -329,15 +294,7 @@ def rebuild_full_index(books_dir: str, index_dir: str) -> bool:
         print("❌ Не удалось создать ни одного чанка")
         return False
 
-    # 3. Опционально: дамп чанков для отладки
-    if debug_dump:
-        chunks_path = "chunks.jsonl"
-        print(f"🔍 DEBUG: Сохранение чанков в {chunks_path}...")
-        save_chunks_for_debug(all_chunks, chunks_path)
-        print(f"   ⚠️ ВНИМАНИЕ: файл может содержать копирайтный текст!")
-        print()
-
-    # 4. Строим и сохраняем индекс
+    # 3. Строим и сохраняем индекс
     print("🔨 Построение индекса...")
     build_index(all_chunks, index_dir, embed_model)
     print()
